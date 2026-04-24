@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Debug PDF — TJSP</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+  body{font-family:monospace;padding:20px;background:#f5f5f5}
+  h2{margin-bottom:12px}
+  .drop{border:2px dashed #ccc;padding:30px;text-align:center;cursor:pointer;background:#fff;margin-bottom:16px;border-radius:8px}
+  .drop:hover{background:#eee}
+  pre{background:#fff;padding:16px;border-radius:8px;overflow:auto;font-size:12px;white-space:pre-wrap;border:1px solid #ddd;max-height:600px}
+  input{display:none}
+</style>
+</head>
+<body>
+<h2>Debug — Leitura do PDF</h2>
+<p style="margin-bottom:12px;font-size:13px">Carregue o PDF de frequência. O sistema mostrará exatamente o que lê, com posições X e Y de cada elemento.</p>
+<div class="drop" onclick="document.getElementById('fi').click()">Clique ou arraste o PDF aqui</div>
+<input type="file" id="fi" accept=".pdf">
+<pre id="out">Aguardando PDF...</pre>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+document.getElementById('fi').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  if(!file) return;
+  const out = document.getElementById('out');
+  out.textContent = 'Lendo...';
+
+  try {
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({data: buf}).promise;
+    let result = `PDF: ${file.name}\nPáginas: ${pdf.numPages}\n\n`;
+
+    for(let pn = 1; pn <= Math.min(pdf.numPages, 2); pn++) {
+      const page   = await pdf.getPage(pn);
+      const vp     = page.getViewport({scale: 1});
+      const H      = vp.height;
+      const W      = vp.width;
+      result += `=== PÁGINA ${pn} (${W.toFixed(0)} x ${H.toFixed(0)}) ===\n`;
+
+      const content = await page.getTextContent();
+      const items = content.items
+        .filter(it => (it.str||'').trim())
+        .map(it => ({
+          text: it.str.trim(),
+          x: Math.round(it.transform[4]),
+          yPdf: Math.round(it.transform[5]),          // y from bottom (PDF native)
+          yTop: Math.round(H - it.transform[5])       // y from top (our system)
+        }))
+        .sort((a,b) => a.yTop !== b.yTop ? a.yTop - b.yTop : a.x - b.x);
+
+      for(const it of items) {
+        result += `yTop=${String(it.yTop).padStart(4)}  x=${String(it.x).padStart(4)}  | "${it.text}"\n`;
+      }
+      result += '\n';
+    }
+
+    out.textContent = result;
+  } catch(e) {
+    out.textContent = 'ERRO: ' + e.message;
+  }
+});
+
+// Drag & drop
+const drop = document.querySelector('.drop');
+drop.addEventListener('dragover', e => { e.preventDefault(); drop.style.background='#e0e0e0'; });
+drop.addEventListener('dragleave', () => drop.style.background='');
+drop.addEventListener('drop', e => {
+  e.preventDefault(); drop.style.background='';
+  document.getElementById('fi').files = e.dataTransfer.files;
+  document.getElementById('fi').dispatchEvent(new Event('change'));
+});
+</script>
+</body>
+</html>
